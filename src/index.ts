@@ -443,10 +443,17 @@ const TOOLS: ToolDef[] = [
 // MCP SERVER SETUP
 // ─────────────────────────────────────────────────────────────────────────────
 
-const server = new Server({
-  name: "google-mcp",
-  version: "1.0.0",
-});
+const server = new Server(
+  {
+    name: "google-mcp",
+    version: "1.0.0",
+  },
+  {
+    capabilities: {
+      tools: {},
+    },
+  }
+);
 
 // Register ListTools handler
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -526,24 +533,38 @@ if (TRANSPORT === "stdio") {
   const httpSessions = new Map<string, StreamableHTTPServerTransport>();
 
   app.all("/mcp", express.json(), async (req, res) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    try {
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
-    if (sessionId && httpSessions.has(sessionId)) {
-      // Existing session
-      await httpSessions.get(sessionId)!.handleRequest(req, res, req.body);
-    } else if (!sessionId && req.method === "POST") {
-      // New session
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
+      if (sessionId && httpSessions.has(sessionId)) {
+        // Existing session
+        const transport = httpSessions.get(sessionId)!;
+        await transport.handleRequest(req, res, req.body);
+      } else {
+        // New session — create a new StreamableHTTPServerTransport
+        const generatedSessionId = randomUUID();
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => generatedSessionId,
+        });
+
+        transport.onclose = () => {
+          httpSessions.delete(generatedSessionId);
+        };
+
+        // Connect the transport to the server
+        await server.connect(transport);
+
+        // Store session
+        httpSessions.set(generatedSessionId, transport);
+
+        // Handle the request
+        await transport.handleRequest(req, res, req.body);
+      }
+    } catch (error) {
+      console.error("[mcp] Error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Internal server error",
       });
-      transport.onclose = () => {
-        if (transport.sessionId) httpSessions.delete(transport.sessionId);
-      };
-      await server.connect(transport);
-      if (transport.sessionId) httpSessions.set(transport.sessionId, transport);
-      await transport.handleRequest(req, res, req.body);
-    } else {
-      res.status(400).json({ error: "Missing or invalid mcp-session-id" });
     }
   });
 
