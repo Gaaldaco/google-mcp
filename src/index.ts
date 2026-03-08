@@ -510,10 +510,12 @@ function buildMcpServer(): McpServer {
 // TRANSPORT SETUP
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Build server once at startup, reuse for all connections
+const mcpServer = buildMcpServer();
+
 if (TRANSPORT === "stdio") {
   // Claude Desktop (local, stdio transport)
-  const server = buildMcpServer();
-  await server.connect(new StdioServerTransport());
+  await mcpServer.connect(new StdioServerTransport());
   console.error("MCP server running on stdio");
 } else {
   // HTTP transport (Railway, claude.ai)
@@ -547,7 +549,7 @@ if (TRANSPORT === "stdio") {
       transport.onclose = () => {
         if (transport.sessionId) httpSessions.delete(transport.sessionId);
       };
-      await buildMcpServer().connect(transport);
+      await mcpServer.connect(transport);
       if (transport.sessionId) httpSessions.set(transport.sessionId, transport);
       await transport.handleRequest(req, res, req.body);
     } else {
@@ -562,7 +564,7 @@ if (TRANSPORT === "stdio") {
     const transport = new SSEServerTransport("/messages", res);
     sseSessions.set(transport.sessionId, transport);
     res.on("close", () => sseSessions.delete(transport.sessionId));
-    await buildMcpServer().connect(transport);
+    await mcpServer.connect(transport);
   });
 
   app.post("/messages", express.json(), async (req, res) => {
