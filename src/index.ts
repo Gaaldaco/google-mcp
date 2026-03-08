@@ -1,11 +1,8 @@
 import "dotenv/config";
-import { randomUUID } from "node:crypto";
 import express from "express";
-import { z } from "zod";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import * as google from "./google.js";
 
@@ -17,494 +14,214 @@ if (!google.accessToken && !google.refreshToken) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TOOL DEFINITIONS
+// TOOLS LIST
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface ToolDef {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  handler: (args: Record<string, unknown>) => Promise<string>;
-}
-
-const TOOLS: ToolDef[] = [
-  // ── GOOGLE DRIVE TOOLS ────────────────────────────────────────────────────
+const tools = [
   {
     name: "drive_list_files",
     description: "List files and folders in Google Drive. Optionally filter by parent folder or search query.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        pageSize: {
-          type: "number",
-          description: "Number of files to return (1-1000)",
-          default: 10,
-        },
-        parent_id: {
-          type: "string",
-          description: "Parent folder ID to list files from",
-        },
-        query: {
-          type: "string",
-          description: 'Additional query string (e.g., "mimeType!=\'application/vnd.google-apps.folder\'")',
-        },
+        pageSize: { type: "number" as const, description: "Number of files to return (1-1000)", default: 10 },
+        parent_id: { type: "string" as const, description: "Parent folder ID to list files from" },
+        query: { type: "string" as const, description: "Additional query string" },
       },
     },
-    handler: async (args) => {
-      const files = await google.driveListFiles(
-        (args.pageSize as number) || 10,
-        args.parent_id as string | undefined,
-        args.query as string | undefined
-      );
-      return JSON.stringify(files, null, 2);
-    },
   },
-
   {
     name: "drive_search_files",
     description: "Search for files in Google Drive by name or content.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        query: {
-          type: "string",
-          description: "Search query (e.g., 'budget' or 'project proposal')",
-        },
+        query: { type: "string" as const, description: "Search query" },
       },
       required: ["query"],
     },
-    handler: async (args) => {
-      const files = await google.driveSearchFiles(args.query as string);
-      return JSON.stringify(files, null, 2);
-    },
   },
-
   {
     name: "drive_get_file",
     description: "Get metadata for a specific file in Google Drive.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        file_id: {
-          type: "string",
-          description: "Google Drive file ID",
-        },
+        file_id: { type: "string" as const, description: "Google Drive file ID" },
       },
       required: ["file_id"],
     },
-    handler: async (args) => {
-      const file = await google.driveGetFile(args.file_id as string);
-      return JSON.stringify(file, null, 2);
-    },
   },
-
   {
     name: "drive_create_folder",
     description: "Create a new folder in Google Drive.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        folder_name: {
-          type: "string",
-          description: "Name of the new folder",
-        },
-        parent_id: {
-          type: "string",
-          description: "Parent folder ID (default: root)",
-        },
+        folder_name: { type: "string" as const, description: "Name of the new folder" },
+        parent_id: { type: "string" as const, description: "Parent folder ID (default: root)" },
       },
       required: ["folder_name"],
     },
-    handler: async (args) => {
-      const folderId = await google.driveCreateFolder(
-        args.folder_name as string,
-        args.parent_id as string | undefined
-      );
-      return JSON.stringify({ folderId }, null, 2);
-    },
   },
-
   {
     name: "drive_move_file",
     description: "Move a file to a different folder in Google Drive.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        file_id: {
-          type: "string",
-          description: "Google Drive file ID",
-        },
-        new_parent_id: {
-          type: "string",
-          description: "New parent folder ID",
-        },
+        file_id: { type: "string" as const, description: "Google Drive file ID" },
+        new_parent_id: { type: "string" as const, description: "New parent folder ID" },
       },
       required: ["file_id", "new_parent_id"],
     },
-    handler: async (args) => {
-      await google.driveMoveFile(args.file_id as string, args.new_parent_id as string);
-      return JSON.stringify({ success: true }, null, 2);
-    },
   },
-
   {
     name: "drive_share_file",
     description: "Share a file or folder with another user or group.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        file_id: {
-          type: "string",
-          description: "Google Drive file ID",
-        },
-        email: {
-          type: "string",
-          description: "Email address to share with",
-        },
-        role: {
-          type: "string",
-          enum: ["reader", "commenter", "writer"],
-          description: "Permission role",
-        },
+        file_id: { type: "string" as const, description: "Google Drive file ID" },
+        email: { type: "string" as const, description: "Email address to share with" },
+        role: { type: "string" as const, enum: ["reader", "commenter", "writer"], description: "Permission role" },
       },
       required: ["file_id", "email", "role"],
     },
-    handler: async (args) => {
-      await google.driveShareFile(args.file_id as string, args.email as string, args.role as "viewer" | "commenter" | "editor");
-      return JSON.stringify({ success: true }, null, 2);
-    },
   },
-
-  // ── GOOGLE DOCS TOOLS ────────────────────────────────────────────────────
   {
     name: "docs_get_document",
     description: "Get the content and metadata of a Google Document.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        document_id: {
-          type: "string",
-          description: "Google Doc document ID",
-        },
+        document_id: { type: "string" as const, description: "Google Doc document ID" },
       },
       required: ["document_id"],
     },
-    handler: async (args) => {
-      const doc = await google.docsGetDocument(args.document_id as string);
-      return JSON.stringify(doc, null, 2);
-    },
   },
-
   {
     name: "docs_append_text",
     description: "Append text to the end of a Google Document.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        document_id: {
-          type: "string",
-          description: "Google Doc document ID",
-        },
-        text: {
-          type: "string",
-          description: "Text to append",
-        },
+        document_id: { type: "string" as const, description: "Google Doc document ID" },
+        text: { type: "string" as const, description: "Text to append" },
       },
       required: ["document_id", "text"],
     },
-    handler: async (args) => {
-      await google.docsAppendText(args.document_id as string, args.text as string);
-      return JSON.stringify({ success: true }, null, 2);
-    },
   },
-
   {
     name: "docs_replace_text",
     description: "Find and replace text in a Google Document.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        document_id: {
-          type: "string",
-          description: "Google Doc document ID",
-        },
-        find_text: {
-          type: "string",
-          description: "Text to find",
-        },
-        replace_text: {
-          type: "string",
-          description: "Text to replace with",
-        },
+        document_id: { type: "string" as const, description: "Google Doc document ID" },
+        find_text: { type: "string" as const, description: "Text to find" },
+        replace_text: { type: "string" as const, description: "Text to replace with" },
       },
       required: ["document_id", "find_text", "replace_text"],
     },
-    handler: async (args) => {
-      await google.docsReplaceText(
-        args.document_id as string,
-        args.find_text as string,
-        args.replace_text as string
-      );
-      return JSON.stringify({ success: true }, null, 2);
-    },
   },
-
   {
     name: "docs_insert_text",
     description: "Insert text at a specific position in a Google Document.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        document_id: {
-          type: "string",
-          description: "Google Doc document ID",
-        },
-        text: {
-          type: "string",
-          description: "Text to insert",
-        },
-        index: {
-          type: "number",
-          description: "Character position to insert at",
-        },
+        document_id: { type: "string" as const, description: "Google Doc document ID" },
+        text: { type: "string" as const, description: "Text to insert" },
+        index: { type: "number" as const, description: "Character position to insert at" },
       },
       required: ["document_id", "text", "index"],
     },
-    handler: async (args) => {
-      await google.docsInsertText(args.document_id as string, args.text as string, args.index as number);
-      return JSON.stringify({ success: true }, null, 2);
-    },
   },
-
-  // ── GOOGLE SHEETS TOOLS ──────────────────────────────────────────────────
   {
     name: "sheets_get_spreadsheet",
     description: "Get metadata and sheet names for a Google Sheet.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        spreadsheet_id: {
-          type: "string",
-          description: "Google Sheet spreadsheet ID",
-        },
+        spreadsheet_id: { type: "string" as const, description: "Google Sheet spreadsheet ID" },
       },
       required: ["spreadsheet_id"],
     },
-    handler: async (args) => {
-      const ss = await google.sheetsGetSpreadsheet(args.spreadsheet_id as string);
-      return JSON.stringify(ss, null, 2);
-    },
   },
-
   {
     name: "sheets_read_range",
     description: "Read values from a cell range in a Google Sheet (e.g. A1:D10).",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        spreadsheet_id: {
-          type: "string",
-          description: "Google Sheet spreadsheet ID",
-        },
-        range: {
-          type: "string",
-          description: "Cell range in A1 notation (e.g., 'Sheet1!A1:D10')",
-        },
+        spreadsheet_id: { type: "string" as const, description: "Google Sheet spreadsheet ID" },
+        range: { type: "string" as const, description: "Cell range in A1 notation" },
       },
       required: ["spreadsheet_id", "range"],
     },
-    handler: async (args) => {
-      const values = await google.sheetsReadRange(args.spreadsheet_id as string, args.range as string);
-      return JSON.stringify(values, null, 2);
-    },
   },
-
   {
     name: "sheets_write_range",
     description: "Write values to a cell range in a Google Sheet.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        spreadsheet_id: {
-          type: "string",
-          description: "Google Sheet spreadsheet ID",
-        },
-        range: {
-          type: "string",
-          description: "Cell range in A1 notation (e.g., 'Sheet1!A1:D10')",
-        },
-        values: {
-          type: "array",
-          description: "2D array of values to write (rows × columns)",
-        },
+        spreadsheet_id: { type: "string" as const, description: "Google Sheet spreadsheet ID" },
+        range: { type: "string" as const, description: "Cell range in A1 notation" },
+        values: { type: "array" as const, description: "2D array of values to write" },
       },
       required: ["spreadsheet_id", "range", "values"],
     },
-    handler: async (args) => {
-      await google.sheetsWriteRange(
-        args.spreadsheet_id as string,
-        args.range as string,
-        args.values as unknown[][]
-      );
-      return JSON.stringify({ success: true }, null, 2);
-    },
   },
-
   {
     name: "sheets_create_spreadsheet",
     description: "Create a new Google Sheet.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        title: {
-          type: "string",
-          description: "Name of the new spreadsheet",
-        },
+        title: { type: "string" as const, description: "Name of the new spreadsheet" },
       },
       required: ["title"],
     },
-    handler: async (args) => {
-      const spreadsheetId = await google.sheetsCreateSpreadsheet(args.title as string);
-      return JSON.stringify({ spreadsheetId }, null, 2);
-    },
   },
-
   {
     name: "sheets_add_sheet",
     description: "Add a new sheet/tab to a Google Sheet.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        spreadsheet_id: {
-          type: "string",
-          description: "Google Sheet spreadsheet ID",
-        },
-        sheet_title: {
-          type: "string",
-          description: "Name of the new sheet",
-        },
+        spreadsheet_id: { type: "string" as const, description: "Google Sheet spreadsheet ID" },
+        sheet_title: { type: "string" as const, description: "Name of the new sheet" },
       },
       required: ["spreadsheet_id", "sheet_title"],
     },
-    handler: async (args) => {
-      const sheetId = await google.sheetsAddSheet(args.spreadsheet_id as string, args.sheet_title as string);
-      return JSON.stringify({ sheetId }, null, 2);
-    },
   },
-
   {
     name: "sheets_delete_sheet",
     description: "Delete a sheet/tab from a Google Sheet.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        spreadsheet_id: {
-          type: "string",
-          description: "Google Sheet spreadsheet ID",
-        },
-        sheet_title: {
-          type: "string",
-          description: "Name of the sheet to delete",
-        },
+        spreadsheet_id: { type: "string" as const, description: "Google Sheet spreadsheet ID" },
+        sheet_title: { type: "string" as const, description: "Name of the sheet to delete" },
       },
       required: ["spreadsheet_id", "sheet_title"],
     },
-    handler: async (args) => {
-      await google.sheetsDeleteSheet(args.spreadsheet_id as string, args.sheet_title as string);
-      return JSON.stringify({ success: true }, null, 2);
-    },
   },
-
   {
     name: "sheets_clear_range",
     description: "Clear all values from a cell range in a Google Sheet.",
     inputSchema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        spreadsheet_id: {
-          type: "string",
-          description: "Google Sheet spreadsheet ID",
-        },
-        range: {
-          type: "string",
-          description: "Cell range to clear (e.g., 'Sheet1!A1:D10')",
-        },
+        spreadsheet_id: { type: "string" as const, description: "Google Sheet spreadsheet ID" },
+        range: { type: "string" as const, description: "Cell range to clear" },
       },
       required: ["spreadsheet_id", "range"],
     },
-    handler: async (args) => {
-      await google.sheetsClearRange(args.spreadsheet_id as string, args.range as string);
-      return JSON.stringify({ success: true }, null, 2);
-    },
   },
 ];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MCP SERVER SETUP
-// ─────────────────────────────────────────────────────────────────────────────
-
-const server = new Server(
-  {
-    name: "google-mcp",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
-
-// Register ListTools handler
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: TOOLS.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-    })),
-  };
-});
-
-// Register CallTool handler
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  const tool = TOOLS.find((t) => t.name === name);
-
-  if (!tool) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Tool "${name}" not found`,
-        },
-      ],
-      isError: true,
-    };
-  }
-
-  try {
-    const result = await tool.handler(args || {});
-    return {
-      content: [
-        {
-          type: "text",
-          text: result,
-        },
-      ],
-    };
-  } catch (error) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Error executing tool "${name}": ${error instanceof Error ? error.message : String(error)}`,
-        },
-      ],
-      isError: true,
-    };
-  }
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TRANSPORT SETUP
@@ -512,66 +229,220 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 if (TRANSPORT === "stdio") {
   // Claude Desktop (local, stdio transport)
+  const server = new Server(
+    { name: "google-mcp", version: "1.0.0" },
+    { capabilities: { tools: {} } }
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema,
+    })),
+  }));
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    const tool = tools.find((t) => t.name === name);
+    if (!tool) {
+      return { content: [{ type: "text", text: `Tool "${name}" not found` }], isError: true };
+    }
+
+    try {
+      let result: string;
+      switch (name) {
+        case "drive_list_files":
+          result = JSON.stringify(await google.driveListFiles((args?.pageSize as number) || 10, args?.parent_id as string, args?.query as string));
+          break;
+        case "drive_search_files":
+          result = JSON.stringify(await google.driveSearchFiles(args?.query as string));
+          break;
+        case "drive_get_file":
+          result = JSON.stringify(await google.driveGetFile(args?.file_id as string));
+          break;
+        case "drive_create_folder":
+          result = JSON.stringify({ folderId: await google.driveCreateFolder(args?.folder_name as string, args?.parent_id as string) });
+          break;
+        case "drive_move_file":
+          await google.driveMoveFile(args?.file_id as string, args?.new_parent_id as string);
+          result = JSON.stringify({ success: true });
+          break;
+        case "drive_share_file":
+          await google.driveShareFile(args?.file_id as string, args?.email as string, args?.role as "viewer" | "commenter" | "editor");
+          result = JSON.stringify({ success: true });
+          break;
+        case "docs_get_document":
+          result = JSON.stringify(await google.docsGetDocument(args?.document_id as string));
+          break;
+        case "docs_append_text":
+          await google.docsAppendText(args?.document_id as string, args?.text as string);
+          result = JSON.stringify({ success: true });
+          break;
+        case "docs_replace_text":
+          await google.docsReplaceText(args?.document_id as string, args?.find_text as string, args?.replace_text as string);
+          result = JSON.stringify({ success: true });
+          break;
+        case "docs_insert_text":
+          await google.docsInsertText(args?.document_id as string, args?.text as string, args?.index as number);
+          result = JSON.stringify({ success: true });
+          break;
+        case "sheets_get_spreadsheet":
+          result = JSON.stringify(await google.sheetsGetSpreadsheet(args?.spreadsheet_id as string));
+          break;
+        case "sheets_read_range":
+          result = JSON.stringify(await google.sheetsReadRange(args?.spreadsheet_id as string, args?.range as string));
+          break;
+        case "sheets_write_range":
+          await google.sheetsWriteRange(args?.spreadsheet_id as string, args?.range as string, args?.values as unknown[][]);
+          result = JSON.stringify({ success: true });
+          break;
+        case "sheets_create_spreadsheet":
+          result = JSON.stringify({ spreadsheetId: await google.sheetsCreateSpreadsheet(args?.title as string) });
+          break;
+        case "sheets_add_sheet":
+          result = JSON.stringify({ sheetId: await google.sheetsAddSheet(args?.spreadsheet_id as string, args?.sheet_title as string) });
+          break;
+        case "sheets_delete_sheet":
+          await google.sheetsDeleteSheet(args?.spreadsheet_id as string, args?.sheet_title as string);
+          result = JSON.stringify({ success: true });
+          break;
+        case "sheets_clear_range":
+          await google.sheetsClearRange(args?.spreadsheet_id as string, args?.range as string);
+          result = JSON.stringify({ success: true });
+          break;
+        default:
+          result = JSON.stringify({ error: `Unknown tool: ${name}` });
+      }
+      return { content: [{ type: "text", text: result }] };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  });
+
   await server.connect(new StdioServerTransport());
   console.error("MCP server running on stdio");
 } else {
-  // HTTP transport (Railway, claude.ai)
+  // HTTP transport
   const app = express();
 
-  // CORS headers
   app.use((_req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, mcp-session-id, accept");
     next();
   });
-  app.options("*", (_req, res) => {
-    res.sendStatus(204);
+  app.options("*", (_req, res) => res.sendStatus(204));
+
+  // Simple JSON endpoint for tools list
+  app.get("/mcp", (_req, res) => {
+    res.json({
+      tools: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      })),
+    });
   });
 
-  // ── StreamableHTTP transport (claude.ai) ──────────────────────────────────
-  const httpSessions = new Map<string, StreamableHTTPServerTransport>();
-
-  app.all("/mcp", express.json(), async (req, res) => {
-    try {
-      const sessionId = req.headers["mcp-session-id"] as string | undefined;
-
-      if (sessionId && httpSessions.has(sessionId)) {
-        // Existing session
-        const transport = httpSessions.get(sessionId)!;
-        await transport.handleRequest(req, res, req.body);
-      } else {
-        // New session — create a new StreamableHTTPServerTransport
-        const generatedSessionId = randomUUID();
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => generatedSessionId,
-        });
-
-        transport.onclose = () => {
-          httpSessions.delete(generatedSessionId);
-        };
-
-        // Connect the transport to the server
-        await server.connect(transport);
-
-        // Store session
-        httpSessions.set(generatedSessionId, transport);
-
-        // Handle the request
-        await transport.handleRequest(req, res, req.body);
-      }
-    } catch (error) {
-      console.error("[mcp] Error:", error);
-      res.status(500).json({
-        error: error instanceof Error ? error.message : "Internal server error",
-      });
-    }
-  });
-
-  // ── Legacy SSE transport (Claude Desktop) ─────────────────────────────────
+  // SSE transport for Claude Desktop
   const sseSessions = new Map<string, SSEServerTransport>();
 
   app.get("/sse", async (_req, res) => {
+    const server = new Server({ name: "google-mcp", version: "1.0.0" }, { capabilities: { tools: {} } });
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+      })),
+    }));
+
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      const tool = tools.find((t) => t.name === name);
+      if (!tool) {
+        return { content: [{ type: "text", text: `Tool "${name}" not found` }], isError: true };
+      }
+
+      try {
+        let result: string;
+        switch (name) {
+          case "drive_list_files":
+            result = JSON.stringify(await google.driveListFiles((args?.pageSize as number) || 10, args?.parent_id as string, args?.query as string));
+            break;
+          case "drive_search_files":
+            result = JSON.stringify(await google.driveSearchFiles(args?.query as string));
+            break;
+          case "drive_get_file":
+            result = JSON.stringify(await google.driveGetFile(args?.file_id as string));
+            break;
+          case "drive_create_folder":
+            result = JSON.stringify({ folderId: await google.driveCreateFolder(args?.folder_name as string, args?.parent_id as string) });
+            break;
+          case "drive_move_file":
+            await google.driveMoveFile(args?.file_id as string, args?.new_parent_id as string);
+            result = JSON.stringify({ success: true });
+            break;
+          case "drive_share_file":
+            await google.driveShareFile(args?.file_id as string, args?.email as string, args?.role as "viewer" | "commenter" | "editor");
+            result = JSON.stringify({ success: true });
+            break;
+          case "docs_get_document":
+            result = JSON.stringify(await google.docsGetDocument(args?.document_id as string));
+            break;
+          case "docs_append_text":
+            await google.docsAppendText(args?.document_id as string, args?.text as string);
+            result = JSON.stringify({ success: true });
+            break;
+          case "docs_replace_text":
+            await google.docsReplaceText(args?.document_id as string, args?.find_text as string, args?.replace_text as string);
+            result = JSON.stringify({ success: true });
+            break;
+          case "docs_insert_text":
+            await google.docsInsertText(args?.document_id as string, args?.text as string, args?.index as number);
+            result = JSON.stringify({ success: true });
+            break;
+          case "sheets_get_spreadsheet":
+            result = JSON.stringify(await google.sheetsGetSpreadsheet(args?.spreadsheet_id as string));
+            break;
+          case "sheets_read_range":
+            result = JSON.stringify(await google.sheetsReadRange(args?.spreadsheet_id as string, args?.range as string));
+            break;
+          case "sheets_write_range":
+            await google.sheetsWriteRange(args?.spreadsheet_id as string, args?.range as string, args?.values as unknown[][]);
+            result = JSON.stringify({ success: true });
+            break;
+          case "sheets_create_spreadsheet":
+            result = JSON.stringify({ spreadsheetId: await google.sheetsCreateSpreadsheet(args?.title as string) });
+            break;
+          case "sheets_add_sheet":
+            result = JSON.stringify({ sheetId: await google.sheetsAddSheet(args?.spreadsheet_id as string, args?.sheet_title as string) });
+            break;
+          case "sheets_delete_sheet":
+            await google.sheetsDeleteSheet(args?.spreadsheet_id as string, args?.sheet_title as string);
+            result = JSON.stringify({ success: true });
+            break;
+          case "sheets_clear_range":
+            await google.sheetsClearRange(args?.spreadsheet_id as string, args?.range as string);
+            result = JSON.stringify({ success: true });
+            break;
+          default:
+            result = JSON.stringify({ error: `Unknown tool: ${name}` });
+        }
+        return { content: [{ type: "text", text: result }] };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+          isError: true,
+        };
+      }
+    });
+
     const transport = new SSEServerTransport("/messages", res);
     sseSessions.set(transport.sessionId, transport);
     res.on("close", () => sseSessions.delete(transport.sessionId));
@@ -587,10 +458,7 @@ if (TRANSPORT === "stdio") {
     await transport.handlePostMessage(req, res);
   });
 
-  // Health check
-  app.get("/health", (_req, res) => {
-    res.json({ status: "ok" });
-  });
+  app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
   app.listen(PORT, () => {
     console.error(`MCP server running on port ${PORT}`);
