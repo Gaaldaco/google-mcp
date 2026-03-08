@@ -15,6 +15,9 @@ if (!google.accessToken && !google.refreshToken) {
   console.warn("[index] No Google tokens configured — API calls will fail");
 }
 
+// Wait for startup token refresh before serving requests
+await google.ready;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SERVER FACTORY — creates a fresh Server + registers all handlers
 // ─────────────────────────────────────────────────────────────────────────────

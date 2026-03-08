@@ -13,6 +13,35 @@ if (!accessToken && !refreshToken) {
   );
 }
 
+// On startup, always refresh if we have a refresh token so we never
+// start with a stale access token from env vars (they expire in 1 hour).
+export const ready: Promise<void> = (async () => {
+  if (refreshToken && CLIENT_ID && CLIENT_SECRET) {
+    try {
+      const res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET,
+        }).toString(),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { access_token: string; refresh_token?: string };
+        accessToken = data.access_token;
+        if (data.refresh_token) refreshToken = data.refresh_token;
+        console.log("[google] Access token refreshed on startup");
+      } else {
+        console.warn("[google] Startup token refresh failed:", await res.text());
+      }
+    } catch (err) {
+      console.warn("[google] Startup token refresh error:", err);
+    }
+  }
+})();
+
 /**
  * Refresh the access token using the refresh token
  */
